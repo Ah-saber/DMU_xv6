@@ -127,6 +127,16 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // initialize the timer
+  p->interrupt_count = 0;
+  p->interrupt_func = 0;
+  p->interrupt_interval = 0;
+  p->interrupt_on = 0;
+  if((p->interrupt_frame = (struct trapframe *)kalloc()) == 0){
+    release(&p->lock);
+    return 0;
+  }
+
   return p;
 }
 
@@ -150,6 +160,15 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  p->interrupt_count = 0;
+  p->interrupt_func = 0;
+  p->interrupt_interval = 0;
+  p->interrupt_on = 0;
+  if(p->interrupt_frame) {
+    kfree((void*)p->interrupt_frame);
+  }
+  p->trapframe = 0;
 }
 
 // Create a user page table for a given process,

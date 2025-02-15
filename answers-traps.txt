@@ -1,0 +1,70 @@
+### 1. RISC-V assembly
+```c
+int g(int x) {
+  return x+3;
+}
+
+int f(int x) {
+  return g(x);
+}
+
+void main(void) {
+  printf("%d %d\n", f(8)+1, 13);
+  exit(0);
+}
+```
+
+- 1.Which registers contain arguments to functions? For example, which register holds 13 in main's call to print
+在 RISC-V 函数调用的规定中，寄存器 `a0-a7` 传递参数，由于 `main` 函数中共有三个参数：输出格式、`f(8)+1` 和 `13` ，所以 13 由寄存器 `a2` 存储，在汇编中也可见此配置。
+
+```c
+000000000000001c <main>:
+
+void main(void) {
+  1c:	1141                	addi	sp,sp,-16
+  1e:	e406                	sd	ra,8(sp)
+  20:	e022                	sd	s0,0(sp)
+  22:	0800                	addi	s0,sp,16
+  printf("%d %d\n", f(8)+1, 13);
+  24:	4635                	li	a2,13
+  26:	45b1                	li	a1,12
+  28:	00000517          	auipc	a0,0x0
+  2c:	7b050513          	addi	a0,a0,1968 # 7d8 <malloc+0xea>
+  30:	00000097          	auipc	ra,0x0
+  34:	600080e7          	jalr	1536(ra) # 630 <printf>
+  exit(0);
+  38:	4501                	li	a0,0
+  3a:	00000097          	auipc	ra,0x0
+  3e:	27e080e7          	jalr	638(ra) # 2b8 <exit>
+```
+
+补充介绍 RISC-V 中函数调用结构
+- prologue（序言），存储现场和寄存器
+- body（过程）
+- epilogue（结语），恢复现场和寄存器
+
+由于函数中的运算会借助寄存器进行中间结果存储，所以在函数实际执行前需要存储当前的寄存器，RISC-V 通过栈存储，`sp` 是栈指针，并且规定栈指针一次移动的距离必须是 16 字节的整数倍，所以在 `main` 函数中通过移动栈指针，将寄存器 `ra` 和 `s0` 进行保存。但由于上述的 main 函数没有正常退出，而是使用 `exit` 退出，所以 epilogue 部分被跳过了。
+
+- 2.Where is the call to function f in the assembly code for main? Where is the call to g? (Hint: the compiler may inline functions.)
+按 RISC-V 的调用惯例，`f(8)+1` 应该存储到 `a1` 寄存器，而实际汇编中，`a1` 存储的是 12，这是因为生成汇编过程中，部分函数直接被替换成其返回的结果。
+
+- 3.At what address is the function printf located?
+`printf` 也是一个函数，正常也要按函数调用的流程执行，`jalr 1536(ra)` 是跳转到 `ra + 1536` 处，而 `ra` 在 `auipc ra,0x0` 被赋值当时 `pc` 的值，所以 `ra = 0x30 = 48` ，所以 `printf` 的地址为 `1584d = 0x630` 
+
+- 4.What value is in the register ra just after the jalr to printf in main?
+`printf` 函数调用结束后，应该跳转到调用 `printf` 的下一条指令，而 `ra` 负责存储这条指令的地址，由汇编可知，`ra = 0x38`
+
+- 5.Run the following code. What is the output? Here's an ASCII table that maps bytes to characters.
+```c
+unsigned int i = 0x00646c72;
+printf("H%x Wo%s", 57616, &i);
+```
+输出结果为 `He110 World` 。
+- `e110` 为 57616 的 16 进制结果。
+- `rld` 为小端存储（little-endian）的 `00 64 6c 72` 的结果，其正常 16 进制结果为 `0dlr` ，但由于 RISC-V 是小端存储模式，即数字的低位在存储的高位，所以输出时，先输出低位再输出高位，产生了 `rld0` 的输出。
+
+- 6.In the following code, what is going to be printed after `'y='`? (note: the answer is not a specific value.) Why does this happen?
+```c
+printf("x=%d y=%d", 3);
+```
+输出结果为 `x=3 y=$a2`，原因是 RISC-V 的调用惯例中，y 应该是由存储第三个参数的 `a2` 的值，但该 `printf` 缺失了第三个参数的传递，导致 y 应该是 `a2` 的值，但这个值会因为系统运行导致结果不一致。
