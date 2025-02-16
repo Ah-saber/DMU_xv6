@@ -124,18 +124,6 @@ found:
   // process's individual kernel pagetable
   p->kpagetable = kvmcreate();
 
-  // process's individual kernel stack
-  // char *pa = kalloc();
-  // if(pa == 0) {
-  //   panic("kalloc");
-  // }
-  // vmprint(p->kpagetable);
-  // printf("\n");
-  // uint64 va = KSTACK((int)0);
-  // printf("map krnlstack va: %p to pa: %p\n", va, pa);
-  // kvmmap2kpgt(p->kpagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-  // p->kstack = va;
-
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -238,6 +226,9 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  
+  // manually map the initcode to kernel pagetable 
+  kvmmapupgt(p->kpagetable, p->pagetable, p->sz, 0);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -267,6 +258,10 @@ growproc(int n)
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
+
+  // ..
+  kvmmapupgt(p->kpagetable, p->pagetable, sz, p->sz);
+
   p->sz = sz;
   return 0;
 }
@@ -292,6 +287,9 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // ..
+  kvmmapupgt(np->kpagetable, np->pagetable, np->sz, 0);
 
   np->parent = p;
 

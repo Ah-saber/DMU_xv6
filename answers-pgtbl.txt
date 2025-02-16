@@ -1,0 +1,8 @@
+page 0: process data, code
+page 1: guard page
+page 2: stack
+
+page 255-511-510: trapframe
+page 255-511-511: trampoline 
+
+others: heap(unused)

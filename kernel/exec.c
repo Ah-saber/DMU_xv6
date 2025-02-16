@@ -52,6 +52,10 @@ exec(char *path, char **argv)
     if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0)
       goto bad;
     sz = sz1;
+    if(sz > PLIC) {
+      printf("exec: new sz too large\n");
+      goto bad;
+    }
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
     if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
@@ -71,6 +75,10 @@ exec(char *path, char **argv)
   if((sz1 = uvmalloc(pagetable, sz, sz + 2*PGSIZE)) == 0)
     goto bad;
   sz = sz1;
+  if(sz > PLIC) {
+    printf("exec: new sz too large\n");
+    goto bad;
+  }
   uvmclear(pagetable, sz-2*PGSIZE);
   sp = sz;
   stackbase = sp - PGSIZE;
@@ -115,6 +123,7 @@ exec(char *path, char **argv)
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
+  kvmmapupgt(p->kpagetable, p->pagetable, p->sz, 0);
 
   // print first process's page table 
   if(p->pid == 1) {

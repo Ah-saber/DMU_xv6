@@ -183,6 +183,12 @@ pagetable_t     kvmcreate();
 void            kvmfree(pagetable_t kpagetable);
 void            kvmmap2kpgt(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm);
 void            kvmswitch_pgt(pagetable_t kpagetable);
+void            kvmmapupgt(pagetable_t kpagetable, pagetable_t upagetable, uint64 new_sz, uint64 old_sz);
+
+
+// vmcopyin.c
+int             copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len);
+int             copyinstr_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max);
 
 // plic.c
 void            plicinit(void);
