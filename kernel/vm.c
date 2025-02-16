@@ -440,3 +440,95 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// print detail of each entry of top pagetable
+void print_pagetable(pagetable_t pagetable, int depth) {
+  if(depth < 1 || depth > 3) return ;
+  char *prefix[] = {
+    "",
+    "..",
+    ".. ..",
+    ".. .. .."
+  };
+
+  for(int i = 0; i < 512; i ++) {
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V) {
+      uint64 child = PTE2PA(pte);
+      printf("%s%d: pte %p pa %p\n", prefix[depth], i, (uint64)pte, child);
+      if((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+        print_pagetable((pagetable_t)child, depth + 1);
+      }
+    }
+  }
+}
+
+// print process pagetable in order
+void vmprint(pagetable_t pagetable) {
+  printf("page table %p\n", pagetable);
+  print_pagetable(pagetable, 1);
+}
+
+// add a mapping from public kernel pagetable to
+// each process's kernel pagetable
+// used when create process's kernel pagetable
+void kvmmap2kpgt(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm) {
+  if(mappages(pagetable, va, sz, pa, perm) != 0) {
+    panic("kvmmap2kpgt");
+  }
+}
+
+// when we create each process's kernel pagetable,
+// we should map entry 1 to entry 511 from public
+// kernel pagetable, because user space is limited
+// to [0, PLIC(0x0C000000)], and in 3-level pagetable,
+// each entry control 1Gb(1 * 512 * 512 * 4096 = 2^30 byte) 18 + 12 = 30
+// space, and 1Gb = 0x40000000, it cover all device,
+// so we need map these devices manually
+pagetable_t kvmcreate() {
+  pagetable_t kpagetable = uvmcreate();
+
+  // copy from public kernel pagetable
+  for(int i = 1; i < 512; i ++) {
+    kpagetable[i] = kernel_pagetable[i];
+  }
+
+  // map devices
+  kvmmap2kpgt(kpagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  kvmmap2kpgt(kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  kvmmap2kpgt(kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  kvmmap2kpgt(kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  return kpagetable;
+}
+
+// when we clean each process's kernel pagetable,
+// because we copy top entry 1~511 from public
+// kernel pagetable, so we just clean top entry,
+// but we manually set up entry 0, so we need 
+// iterate 2nd, 3rd pagetable of entry 0, and free
+// them, NOTICE: we SHOULD NOT free the physical
+// page of 3rd mapping!
+void kvmfree(pagetable_t kpagetable) {
+  pte_t pte_0 = kpagetable[0];
+  pagetable_t level_1 = (pagetable_t) PTE2PA(pte_0);
+
+  for(int i = 0; i < 512; i ++) {
+    pte_t pte = level_1[i];
+    if(pte & PTE_V) {
+      uint64 level_2 = (uint64) PTE2PA(pte);
+      kfree((void *) level_2);
+      level_1[i] = 0;
+    }
+  }
+
+
+  kfree((void *) level_1);
+  kfree((void *) kpagetable);
+}
+
+// switch each process's individual kernel pagetable
+void kvmswitch_pgt(pagetable_t kpagetable) {
+  w_satp(MAKE_SATP(kpagetable));
+  sfence_vma();
+}

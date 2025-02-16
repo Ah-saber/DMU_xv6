@@ -121,6 +121,21 @@ found:
     return 0;
   }
 
+  // process's individual kernel pagetable
+  p->kpagetable = kvmcreate();
+
+  // process's individual kernel stack
+  // char *pa = kalloc();
+  // if(pa == 0) {
+  //   panic("kalloc");
+  // }
+  // vmprint(p->kpagetable);
+  // printf("\n");
+  // uint64 va = KSTACK((int)0);
+  // printf("map krnlstack va: %p to pa: %p\n", va, pa);
+  // kvmmap2kpgt(p->kpagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  // p->kstack = va;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -150,6 +165,9 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  if(p->kpagetable) {
+    kvmfree(p->kpagetable);
+  }
 }
 
 // Create a user page table for a given process,
@@ -473,11 +491,18 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // switch the kernel pagetable
+        kvmswitch_pgt(p->kpagetable);
+
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
+
+        // switch back to public kernel pagetable
+        kvminithart();
 
         found = 1;
       }
