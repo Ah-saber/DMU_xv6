@@ -457,7 +457,8 @@ void print_pagetable(pagetable_t pagetable, int depth) {
     pte_t pte = pagetable[i];
     if(pte & PTE_V) {
       uint64 child = PTE2PA(pte);
-      printf("%s%d: pte %p pa %p\n", prefix[depth], i, (uint64)pte, child);
+      uint64 status = pte & ((1 << 8) - 1); // check pte flag
+      printf("%s%d: pte %p pa %p sta %p\n", prefix[depth], i, (uint64)pte, child, status);
       if((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
         print_pagetable((pagetable_t)child, depth + 1);
       }
