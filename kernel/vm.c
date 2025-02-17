@@ -5,6 +5,9 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+// for using myproc(), from https://pdos.csail.mit.edu/6.S081/2020/labs/lazy.html hints
+#include "spinlock.h" 
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -179,11 +182,17 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   if((va % PGSIZE) != 0)
     panic("uvmunmap: not aligned");
 
+  // after lazy allocation, some pages are allocated
+  // practically, some are not, so when we unmap all
+  // of them, we should leave pages whoes are invaild
+  // or none
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      // panic("uvmunmap: walk");
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      // panic("uvmunmap: not mapped");
+      continue;
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -313,11 +322,17 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uint flags;
   char *mem;
 
+  // after lazy allocation, some pages are allocated
+  // practically, some are not, so when we map them 
+  // from father to child, some page is none, and we 
+  // dont need to map them, just skip
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      // lazy alloc
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      // lazy alloc
+      continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -356,6 +371,12 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
 
+  // from kernel to user, some pages belong to process
+  // but are invaild, so we should check and alloc
+  if(vmlazycheck(dstva)) {
+    vmlazyalloc(dstva);
+  }
+
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
@@ -380,6 +401,14 @@ int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
   uint64 n, va0, pa0;
+
+  // from user to kernel, some pages belong to process
+  // but are invaild, even they are nonsens, we should
+  // alloc them and copy them to kernel, even they are
+  // filed with junk after initialzing
+  if(vmlazycheck(srcva)) {
+    vmlazyalloc(srcva);
+  }
 
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
@@ -407,6 +436,11 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
   uint64 n, va0, pa0;
   int got_null = 0;
+
+  // same with copyin
+  if(vmlazycheck(srcva)) {
+    vmlazyalloc(srcva);
+  }
 
   while(got_null == 0 && max > 0){
     va0 = PGROUNDDOWN(srcva);
@@ -439,4 +473,41 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// lazy allocation works when process read/write pages which 
+// should be allocated at sbrk(), but lazy allocation 
+// does not do this eagerly, so os will meet an exception
+// which has code 15 or 13(refer riscv book p102), so we
+// need allocate a page for it
+void vmlazyalloc(uint64 va) {
+  // dont use this when make grade, it will make testcases TLE
+  // printf("lazy allocation: page fault occured at %p\n", r_stval()); 
+  struct proc *p = myproc();
+
+  // handle out of memory
+  char *mem = kalloc();
+  if(mem == 0) {
+    printf("lazy allocation: kalloc cannot get memory\n");
+    p->killed = 1; 
+  } else {
+    memset(mem, 0, PGSIZE);
+    if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_W | PTE_X | PTE_R | PTE_U) != 0) {
+      kfree(mem);
+      panic("lazy allocation: allocate page fault");
+      p->killed = 1;
+    }
+  }
+}
+
+// check va vaild
+// 1. 0 < va < sbrk_top(p->sz)
+// 2. va doesnt sit guard page, because they are not avaiable for users
+// 3. va's pte doesnt exist, so we should map them, instead we could get remap panic
+int vmlazycheck(uint64 va) {
+  struct proc *p = myproc();
+  pte_t *pte;
+  uint64 guard_page = PGROUNDDOWN(r_sp()) - PGSIZE;
+
+  return (va >= 0) && (va < p->sz) && (PGROUNDDOWN(va) != guard_page) && (((pte = walk(p->pagetable, va, 0)) == 0) || ((*pte & PTE_V) == 0));
 }

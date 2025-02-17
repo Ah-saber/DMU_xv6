@@ -47,8 +47,17 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+
+  // just add size but dont alloc page when n > 0
+  // we should unmap some page when n < 0, we cannot
+  // lazy SHRINK!
+  struct proc *p = myproc();
+  if(n < 0) {
+    uvmdealloc(p->pagetable, p->sz, p->sz + n);
+  }
+  p->sz = p->sz + n;
+  // if(growproc(n) < 0)
+  //   return -1;
   return addr;
 }
 
