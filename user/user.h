@@ -23,7 +23,9 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
-int trace(int);
+int trace(int); //加在用户页面是因为用户调用的函数
+struct sysinfo; // 先声明是因为要用结构体做参数需要先告知编译器这个参数是什么
+int sysinfo(struct sysinfo *);
 
 // ulib.c
 int stat(const char*, struct stat*);
