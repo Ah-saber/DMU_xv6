@@ -127,6 +127,8 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  p->syscall_trace = 0;  //为mask变量赋初值（难道难道不会直接赋值）
+
   return p;
 }
 
@@ -294,6 +296,8 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+
+  np->syscall_trace = p->syscall_trace;  //增加mask赋值给子进程
 
   release(&np->lock);
 
