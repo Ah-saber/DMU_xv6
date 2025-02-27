@@ -52,6 +52,7 @@ release(struct spinlock *lk)
   lk->cpu = 0;
 
   // junk
+  // junk2
 
   // Tell the C compiler and the CPU to not move loads or stores
   // past this point, to ensure that all the stores in the critical
