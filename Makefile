@@ -150,7 +150,9 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_trace\
-	$U/_sysinfotest \
+	$U/_sysinfotest\
+	$U/_ps\
+	$U/_pstree\
 
 
 ifeq ($(LAB),trap)

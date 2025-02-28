@@ -315,6 +315,8 @@ fork(void)
 
   np->state = RUNNABLE;
 
+  np->ppid = p->pid;
+  
   np->syscall_trace = p->syscall_trace;  //增加mask赋值给子进程
 
   release(&np->lock);

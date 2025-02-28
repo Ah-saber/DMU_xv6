@@ -106,6 +106,8 @@ extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
 extern uint64 sys_trace(void);
 extern uint64 sys_sysinfo(void);
+extern uint64 sys_ps(void);
+extern uint64 sys_pstree(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -131,6 +133,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_close]   sys_close,
 [SYS_trace]   sys_trace,
 [SYS_sysinfo] sys_sysinfo,
+[SYS_ps]      sys_ps,
+[SYS_pstree]  sys_pstree,
 };
 
 
@@ -157,6 +161,8 @@ static char* syscallname[] = {
   [SYS_mkdir] =  "mkdir",
   [SYS_close] =  "close",
   [SYS_trace] =  "trace",
+  [SYS_ps]    =  "ps",
+  [SYS_pstree] = "pstree",
 };
 
 void

@@ -134,3 +134,29 @@ sys_sysinfo(void)
   
   return 0;
 }
+
+extern struct proc proc[NPROC];
+
+uint64
+sys_ps(void)
+{
+  uint64 addr = 0;
+  if(argaddr(0, &addr) < 0)
+    return -1;
+
+  struct proc *p = myproc();
+
+  //printf("when copyout");
+  
+  if(copyout(p->pagetable, addr, (char *)proc, sizeof(proc)) < 0){
+    return -1;
+  }
+
+  return 0;
+}
+
+uint64
+sys_pstree(void)
+{
+  return 0;
+}
