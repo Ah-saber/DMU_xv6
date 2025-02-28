@@ -26,6 +26,7 @@ struct run {
 
 struct {
   struct spinlock lock;
+  struct spinlock steal_lock; // 解决只有一个锁下的死锁问题
   struct run *freelist;
 } kmem[NCPU];
 
@@ -101,25 +102,33 @@ kalloc(void)
   acquire(&kmem[id].lock);
   r = kmem[id].freelist;
   //在这里实施窃取大概
-  if(r)
+  if(r){
     kmem[id].freelist = r->next;
-  else{
+    release(&kmem[id].lock);
+  }else{
+    acquire(&kmem[id].steal_lock);  //拿锁表示当前进程绑住CPU，CPU不调用其他进程干扰
+    release(&kmem[id].lock);  //允许其他CPU来访问，由于当前需要偷页，所以就算开放锁其他CPU也无法做出任何改变
     int i;
     for(i = 0; i < NCPU; i ++){
       if(i == id) continue;
 
-      acquire(&kmem[i].lock);
+      acquire(&kmem[i].lock);  //如果单纯用这个锁会死锁，A偷B，B偷A，现在这个锁当二者都需要偷的时候会开放，
+                              //如果B有页，在其分配结束，开锁之后可以偷，如果B没页，那么B要不没有在分配，又不就是在偷，锁都是打开的
       r = kmem[i].freelist;
-      if(r){
+      if(r){  //如果此时被偷的B在偷别人，那就说明它没有页，这一项不会过，不会改变B，如果B没有在偷，说明B有页，可以改变B
+        //进来了说明找到页可以偷，偷之前先上锁，等在偷A的发现A没有页退出后，A就可以上锁偷页
+        acquire(&kmem[id].lock); //此时A偷完了，不会再去要别人的锁，避免了死锁
+  
         kmem[i].freelist = r->next; // 先改好被偷的指针指向下一个
         r->next = kmem[id].freelist; //偷到当前列表中，而原来的freelist已经指到末尾了，不再修改
         release(&kmem[i].lock);
+        release(&kmem[id].lock);
         break;
       }
       else release(&kmem[i].lock);
     }
+    release(&kmem[id].steal_lock); //因为自己已经上锁了，不需要再有一个辅助锁
   }
-  release(&kmem[id].lock);
 
   pop_off();
   if(r)
