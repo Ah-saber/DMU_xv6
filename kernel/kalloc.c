@@ -94,5 +94,5 @@ countfreeb(void)
     r = r->next;
   }
   release(&kmem.lock);
-  return cont;
+  return cont * PGSIZE;
 }

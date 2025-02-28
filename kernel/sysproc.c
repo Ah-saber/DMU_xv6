@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "kernel/sysinfo.h"
 
 uint64
 sys_exit(void)
@@ -112,6 +113,24 @@ sys_trace(void)
 uint64
 sys_sysinfo(void)
 {
+  //首先，用户调用这个函数，跳转到系统调用（即这个函数实现）
+  //也就是现在是内核态，内核态需要访问到用户空间中的sysinfo结构体，需要往里面写数据，
+  //那就需要使用copyout的实现
+
+  //从用户态调用的函数读一个参数做指针？
+  uint64 addr = 0;
+  if(argaddr(0, &addr) < 0)
+    return -1;
+
+  struct proc *p = myproc();
+  struct sysinfo st;
+
+  st.freemem = countfreeb();
+  st.nproc = nproc();
+
+  if(copyout(p->pagetable, addr, (char *)&st, sizeof(st)) < 0){
+    return -1;
+  }
   
   return 0;
 }

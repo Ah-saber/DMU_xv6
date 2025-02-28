@@ -90,16 +90,20 @@ allocpid() {
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
 
-uint64 nproc(void)
+uint64 
+nproc(void)
 {
-  uint64 num;
+  uint64 num = 0;
   struct proc *p;
   for(p = proc; p < &proc[NPROC]; p ++){
     acquire(&p->lock);
     if(p->state != UNUSED){
       num ++;
     }
+    release(&p->lock);
   }
+
+  return num;
 }
 
 
