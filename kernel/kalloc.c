@@ -26,14 +26,16 @@ struct {
   struct run *freelist;
 } kmem;
 
-struct spinlock cowcount_lock; // cow count array lock
+struct spinlock cowcount_lock[ARRLEN]; // cow count array lock
 int cowcount[ARRLEN]; // cow count array
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
-  initlock(&cowcount_lock, "cowcount");
+  for(int i = 0; i < ARRLEN; i ++) {
+    initlock(&cowcount_lock[i], "cowcount");
+  }
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -58,7 +60,7 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  acquire(&cowcount_lock);
+  acquire(&cowcount_lock[PA2IDX(pa)]);
   if(-- cowcount[PA2IDX(pa)] <= 0) { // avoid cowcount race condition
     // Fill with junk to catch dangling refs.
     memset(pa, 1, PGSIZE);
@@ -70,7 +72,7 @@ kfree(void *pa)
     kmem.freelist = r;
     release(&kmem.lock);
   }
-  release(&cowcount_lock);
+  release(&cowcount_lock[PA2IDX(pa)]);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -90,37 +92,37 @@ kalloc(void)
   if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
 
-  //  acquire(&cowcount_lock); // why fail at here?
+    acquire(&cowcount_lock[PA2IDX(r)]); // why fail at here?
     cowcount[PA2IDX(r)] = 1;
-  //  release(&cowcount_lock);
+    release(&cowcount_lock[PA2IDX(r)]);
   }
   return (void*)r;
 }
 
 void* cow_copy_pa(void* pa) {
-  acquire(&cowcount_lock); // avoid cowcount race condition
+  acquire(&cowcount_lock[PA2IDX(pa)]); // avoid cowcount race condition
 
   if(cowcount[PA2IDX(pa)] <= 1) { // ref count is 1, no need to copy
-    release(&cowcount_lock);
+    release(&cowcount_lock[PA2IDX(pa)]);
     return pa;
   }
 
   char* mem = (char*)kalloc(); // fail here?
   if(mem == 0) {
-    release(&cowcount_lock);
+    release(&cowcount_lock[PA2IDX(pa)]);
     return 0; // out of memory
   }
   
   memmove((void*)mem, (void*)pa, PGSIZE); 
   cowcount[PA2IDX(pa)] --; // decrase                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
 
-  release(&cowcount_lock);
+  release(&cowcount_lock[PA2IDX(pa)]);
 
   return (void*)mem;
 }
 
 void cowcount_add(void* pa) { // add ref count by pa
-  acquire(&cowcount_lock);
+  acquire(&cowcount_lock[PA2IDX(pa)]);
   cowcount[PA2IDX(pa)] ++;
-  release(&cowcount_lock);
+  release(&cowcount_lock[PA2IDX(pa)]);
 }
