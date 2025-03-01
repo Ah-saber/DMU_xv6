@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -358,6 +360,13 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+
+    if(cow_check(va0) == 0) { // in kernel, we cannot use cow in usertrap, we should manually do it
+      if(cow_copy(va0) < 0) {
+        return -1;
+      }
+    }
+
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
@@ -439,4 +448,79 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+int uvmcopy_cow(pagetable_t old, pagetable_t new, uint64 sz)
+{
+  pte_t *pte;
+  uint64 pa, i;
+  uint flags;
+
+  for(i = 0; i < sz; i += PGSIZE){
+    if((pte = walk(old, i, 0)) == 0)
+      panic("uvmcopy: pte should exist");
+    if((*pte & PTE_V) == 0)
+      panic("uvmcopy: page not present");
+
+    pa = PTE2PA(*pte);
+    // if father's process is writable, we should change flag, others we share them
+    if(*pte & PTE_W) {
+      *pte &= (~PTE_W); // delete write flag
+      *pte |= PTE_COW; // add cow flag
+    }
+    flags = PTE_FLAGS(*pte); // new page flags
+
+    
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+      goto err;
+    }
+    cowcount_add((void*)pa); 
+  }
+  return 0;
+
+ err:
+  uvmunmap(new, 0, i / PGSIZE, 1);
+  return -1;
+}
+
+int cow_check(uint64 va) { // check va is legal, and pte is a vaild cow page
+  struct proc* p = myproc();
+  pte_t *pte;
+
+  if(va >= p->sz) return -1; // va is legal ?
+  
+  pte = walk(p->pagetable, va, 0); 
+  if(pte == 0) return -1; // pte is non-zero ?
+  if((*pte & PTE_V) == 0) return -1; // pte is vaild ?
+  if((*pte & PTE_W) != 0) return -1; // pte is non-writable ?
+  if((*pte & PTE_COW) == 0) return -1; // pte is cow page ?
+
+  return 0;
+}
+
+int cow_copy(uint64 va) { // copy a cow page
+  struct proc* p = myproc();
+  pte_t *pte;
+  uint64 pa;
+  char* mem;
+  uint flags;
+
+  pte = walk(p->pagetable, va, 0);
+  if(pte == 0) {
+    panic("cow_copy: pte should exist");
+  }
+
+  pa = PTE2PA(*pte);
+  mem = (char*)cow_copy_pa((void*)pa); // try to copy pa to mem
+  if(mem == 0) {
+    return -1; // out of memory
+  }
+
+  flags = ((PTE_FLAGS(*pte) | PTE_W) & (~PTE_COW)); // new page flag(add write, delete cow)
+  uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 0);
+  if(mappages(p->pagetable, va, 1, (uint64)mem, flags) != 0) {
+    panic("cow_copy: mappages failed");
+  }
+
+  return 0;
 }
