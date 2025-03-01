@@ -41,10 +41,9 @@ void
 kinit()
 {
   int id;
-  char *num = "0123456789";
   for(id = 0; id < NCPU; id ++){
-    char name[10] = "kmem_cpu_";
-    name[9] = num[id];
+    char name[12];
+    snprintf(name, sizeof(name), "kmem_cpu_", id);
     initlock(&kmem[id].lock, name);
   }
   freerange(end, (void*)PHYSTOP); //end是kernel之后的第一个地址
