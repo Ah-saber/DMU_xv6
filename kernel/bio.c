@@ -43,7 +43,7 @@ extern uint ticks;
 
 struct {
   struct buf buf[NBUF];
-  //struct spinlock eviction_lock;
+  struct spinlock eviction_lock;
 
   // Hash map: dev and blockno to buf
   struct buf bufmap[NBUFMAP_BUCKET];
@@ -70,21 +70,21 @@ binit(void)
     bcache.bufmap[0].next = b;
   }
 
-  //initlock(&bcache.eviction_lock, "bcache_eviction");
+  initlock(&bcache.eviction_lock, "bcache_eviction");
 }
 
-int  //查看是否是前半
-lockcheck(int key, int j)
-{
-  int half = NBUFMAP_BUCKET / 2;
-  if(j == 0) return 1;
-  if(key >= half && j + half < key){
-    return 0;
-  }else if(key < half && (j < (key - half + NBUFMAP_BUCKET) % NBUFMAP_BUCKET && j > key)){
-    return 0;
-  }else  
-    return 1;
-}
+// int  //查看是否是前半
+// lockcheck(int key, int j)
+// {
+//   int half = NBUFMAP_BUCKET / 2;
+//   if(j == 0) return 1;
+//   if(key >= half && j + half < key){
+//     return 0;
+//   }else if(key < half && (j < (key - half + NBUFMAP_BUCKET) % NBUFMAP_BUCKET && j > key)){
+//     return 0;
+//   }else  
+//     return 1;
+// }
 
 // Look through buffer cache for block on device dev.
 // If not found, allocate a buffer.
@@ -108,7 +108,20 @@ bget(uint dev, uint blockno)
     b = b->next;
   }
 
-  // release(&bcache.bufmap_locks[key]);  //可以放锁，此时需要将后续驱逐序列化，即增加驱逐锁
+  release(&bcache.bufmap_locks[key]);  //放锁，此时需要将后续驱逐序列化，即增加驱逐锁
+
+  acquire(&bcache.eviction_lock);
+  //上锁后检查，是否后之前上锁的完成任务了
+  b = bcache.bufmap[key].next;
+  while(b != 0){
+    if(b->dev == dev && b->blockno == blockno){
+      b->refcnt ++;
+      release(&bcache.bufmap_locks[key]);
+      acquiresleep(&b->lock);
+      return b;
+    }
+    b = b->next;
+  }
 
   // Is the block already cached?
   // for(b = bcache.head.next; b != &bcache.head; b = b->next){
@@ -136,22 +149,21 @@ bget(uint dev, uint blockno)
   //   }
   // }
 
-  //在对应桶里找不到，驱逐并加到自己桶里
-  //限定范围为一半的桶，防止死锁
+  //没有就自己完成任务，此时已经是序列化，只有一个进程可以驱逐buf
   int i;
   int lm = -1;
   struct buf *before_b = 0; //维护一个前序节点，用来后面删掉取出的buf
   int mm = -1;
   for(i = 0; i < NBUFMAP_BUCKET; i ++){
-    if(i == key || !lockcheck(key, i)) continue;
+    //if(i == key) continue;
     uint nid = i;  //保证在循环右侧
     acquire(&bcache.bufmap_locks[nid]); //获得锁
     struct buf *nb = bcache.bufmap[nid].next;
     struct buf *pnb = &bcache.bufmap[nid];
     while(nb){
-      if(nb->lastuse < mm || mm == -1){
+      if(nb->refcnt == 0 && (nb->lastuse < mm || mm == -1)){
         if(lm != nid){
-          if(lm != -1) release(&bcache.bufmap_locks[lm]); //如果当前最小变了，那就释放锁
+          if(lm != -1 && holding(&bcache.bufmap_locks[nid])) release(&bcache.bufmap_locks[lm]); //如果当前最小变了，那就释放锁
           lm = nid;
           before_b = pnb;
           b = nb;
@@ -166,27 +178,29 @@ bget(uint dev, uint blockno)
     if(lm != nid && holding(&bcache.bufmap_locks[nid])) release(&bcache.bufmap_locks[nid]); //如果不是最小的那个，那要在过程中释放锁
   }
 
-  if(lm != -1){
+  if(lm == -1) panic("bget: no buffers");
+  
+  if(lm != -1 && lm != key){
     //找得到一个最小的，转到key的哈希桶中,此时不会获得自己的id，所以不会发生将新旧桶装一起的情况
     //从原本的链中删除
     before_b->next = b->next;
+    release(&bcache.bufmap_locks[lm]); //放掉所有锁，先放lm再放自己，防止刚拿到的buf被人拿走，
+    acquire(&bcache.bufmap_locks[key]); //上锁修改
     b->next = bcache.bufmap[key].next;
     bcache.bufmap[key].next = b;
-    release(&bcache.bufmap_locks[lm]); //放掉所有锁，先放lm再放自己，防止刚拿到的buf被人拿走，
-
+    }
+    
     b->dev = dev;
     b->blockno = blockno;
     b->refcnt = 1;
     b->valid = 0;  //无效
 
     release(&bcache.bufmap_locks[key]);
+    release(&bcache.eviction_lock);
     acquiresleep(&b->lock);
     return b;
-  }
-  //找不到
-
-  panic("bget: no buffers");
 }
+  //找不到
 
 
 // Release a locked buffer.
