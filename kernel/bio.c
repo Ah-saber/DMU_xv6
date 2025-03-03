@@ -54,13 +54,14 @@ void
 binit(void)
 {
   // Initialize bufmap
-  for(int i=0;i<NBUFMAP_BUCKET;i++) {
+  int i;
+  for(i = 0; i < NBUFMAP_BUCKET; i ++) {
     initlock(&bcache.bufmap_locks[i], "bcache_bufmap");
     bcache.bufmap[i].next = 0;
   }
 
   // Initialize buffers
-  for(int i=0;i<NBUF;i++){
+  for(i = 0;i < NBUF; i ++){
     struct buf *b = &bcache.buf[i];
     initsleeplock(&b->lock, "buffer");
     b->lastuse = 0;

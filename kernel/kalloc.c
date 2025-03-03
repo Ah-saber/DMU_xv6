@@ -37,18 +37,25 @@ struct {
 //   initlock(&kmem.lock, "kmem");
 //   freerange(end, (void*)PHYSTOP);
 // }
+char *kmem_lock_names[] = {
+  "kmem_cpu_0",
+  "kmem_cpu_1",
+  "kmem_cpu_2",
+  "kmem_cpu_3",
+  "kmem_cpu_4",
+  "kmem_cpu_5",
+  "kmem_cpu_6",
+  "kmem_cpu_7",
+};
+
 void
 kinit()
 {
-  int id;
-  for(id = 0; id < NCPU; id ++){
-    char name[12];
-    snprintf(name, sizeof(name), "kmem_cpu_", id);
-    initlock(&kmem[id].lock, name);
+  for(int i=0;i<NCPU;i++) { // 初始化所有锁
+    initlock(&kmem[i].lock, kmem_lock_names[i]);
   }
-  freerange(end, (void*)PHYSTOP); //end是kernel之后的第一个地址
+  freerange(end, (void*)PHYSTOP);
 }
-
 void
 freerange(void *pa_start, void *pa_end)
 {
