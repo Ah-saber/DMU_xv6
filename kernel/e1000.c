@@ -102,7 +102,27 @@ e1000_transmit(struct mbuf *m)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
   //
+  //使用锁来保证只有一个进程在用
+  //首先拿到TX ring的索引
+  //检查是否溢出，查看是否还没完成上一次的请求，是则报错
+  //如果没错就释放得到的mbuf内存
+  //得到文件描述符，写入对应位置，需要设置flag（看看E1000），保存此次的buf用于之后释放
+  /*cmd   
+  IDE 延迟中断，减少中断频率 1/0 
+  VLE VLAN标签，不知道作用，要CTL寄存器设置 1/0 
+  DEXT 保留位，写0防止不兼容  0
+  RPS 确保数据包发送完成再标记完成，提升可靠性 0/1
+  RS 完成后更新 DD 状态 为 1，之后软件检测并回收描述符用
+  IC 自动校验和，要配置 CSO 和 CCS字段 1/0
+  IFCS 自动插入帧校验序列，以太网标准要求 1/0
+  EOP 标记数据包结束，控制 IC，IFCS，VLE 有效 1 
+  */ 
+  //更新ring的索引，取模
+  //如果成功得到一个空buff，就return 0，否则-1
+
   
+
+
   return 0;
 }
 
@@ -115,6 +135,15 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
+
+  //E1000_RDT 读取寄存器，询问下一个等待接收的数据包ring索引，得到一个数据包？
+  //检查文件描述符是否有新数据包可用，否则停止？或许在这里处理包数量超16，等待有在往下做
+  //更新mbf中长度为描述符中m-len长度，使用net_rx()传输mbuf到网络栈
+  //使用alloc为mbuf分配空间，替换刚使用的，添加到descriptor中
+  //更新E1000寄存器为处理过的最后一个环描述符索引，即当前索引
+  //参考e1000_init初始化
+  //另外需要处理数据包数量超过16的情况
+    //或许检查是否当前要替换的包是有信息的
 }
 
 void

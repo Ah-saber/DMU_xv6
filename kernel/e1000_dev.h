@@ -103,7 +103,7 @@ struct tx_desc
   uint16 length;
   uint8 cso;
   uint8 cmd;
-  uint8 status;
+  uint8 status;  //最后一位是 DD位，回收检验是否结束
   uint8 css;
   uint16 special;
 };
