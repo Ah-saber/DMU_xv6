@@ -245,14 +245,14 @@ main(int argc, char *argv[])
     int pid = fork();
     if (pid == 0){
       ping(2000 + i + 1, dport, 1);
-      printf("%d out ping\n");
+      //printf("%d out ping\n");
       exit(0);
     }
   }
   for (i = 0; i < 10; i++){
-    printf("in wait\n");
+    //printf("in wait\n");
     wait(&ret);
-    printf("out wait\n");
+    //printf("out wait\n");
     if (ret != 0)
       exit(1);
   }
