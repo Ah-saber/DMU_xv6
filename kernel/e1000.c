@@ -103,9 +103,23 @@ e1000_transmit(struct mbuf *m)
   // a pointer so that it can be freed after sending.
   //
   //使用锁来保证只有一个进程在用
+  acquire(&e1000_lock);
+
   //首先拿到TX ring的索引
+  uint32 idx = regs[E1000_TDT] ;
+  struct tx_desc *tx = &tx_ring[idx];
+
   //检查是否溢出，查看是否还没完成上一次的请求，是则报错
+  if(!(tx->status & E1000_TXD_STAT_DD)){
+    release(&e1000_lock);
+    return -1;
+  }
+
   //如果没错就释放得到的mbuf内存
+  if(tx_mbufs[idx]){
+    mbuffree(tx_mbufs[idx]);
+    tx_mbufs[idx] = 0;
+  }
   //得到文件描述符，写入对应位置，需要设置flag（看看E1000），保存此次的buf用于之后释放
   /*cmd   
   IDE 延迟中断，减少中断频率 1/0 
@@ -117,11 +131,18 @@ e1000_transmit(struct mbuf *m)
   IFCS 自动插入帧校验序列，以太网标准要求 1/0
   EOP 标记数据包结束，控制 IC，IFCS，VLE 有效 1 
   */ 
+  tx->addr = (uint64) m->head;
+  tx->length = m->len;
+  tx->cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
+
+  //暂存m
+  tx_mbufs[idx] = m;
   //更新ring的索引，取模
+  regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
+
+  release(&e1000_lock);
+
   //如果成功得到一个空buff，就return 0，否则-1
-
-  
-
 
   return 0;
 }
@@ -137,13 +158,33 @@ e1000_recv(void)
   //
 
   //E1000_RDT 读取寄存器，询问下一个等待接收的数据包ring索引，得到一个数据包？
-  //检查文件描述符是否有新数据包可用，否则停止？或许在这里处理包数量超16，等待有在往下做
-  //更新mbf中长度为描述符中m-len长度，使用net_rx()传输mbuf到网络栈
-  //使用alloc为mbuf分配空间，替换刚使用的，添加到descriptor中
-  //更新E1000寄存器为处理过的最后一个环描述符索引，即当前索引
+  //while原因，一次中断可能要处理多个数据包，如果处理不完ring可能溢出，不再处理新的包，
+  //新的包得不到响应，进程ping发送数据包得不到回应，退不出ping，父进程又等待子进程退出，死锁
+  while(1){
+    uint32 idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+  
+    //检查文件描述符是否有新数据包可用，否则停止？或许在这里处理包数量超16，等待有在往下做
+    struct rx_desc *rx = &rx_ring[idx];
+
+    if(!(rx->status & E1000_RXD_STAT_DD)){
+      return; 
+    }
+
+    //更新mbf中长度为描述符中m-len长度，使用net_rx()传输mbuf到网络栈
+    rx_mbufs[idx]->len = rx->length;
+    net_rx(rx_mbufs[idx]);
+
+    //使用alloc为mbuf分配空间，替换刚使用的，添加到descriptor中
+    rx_mbufs[idx] = mbufalloc(0);
+    rx->status = 0; // 初始化status
+    rx->addr = (uint64) rx_mbufs[idx]->head;
+
+    //更新E1000寄存器为处理过的最后一个环描述符索引，即当前索引
+    regs[E1000_RDT] = idx;
+  }
   //参考e1000_init初始化
   //另外需要处理数据包数量超过16的情况
-    //或许检查是否当前要替换的包是有信息的
+    //或许检查是否当前要替换的包是有信息的  
 }
 
 void
