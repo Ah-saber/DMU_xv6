@@ -153,6 +153,7 @@ UPROGS=\
 	$U/_sysinfotest\
 	$U/_ps\
 	$U/_pstree\
+	$U/_primes\
 
 
 ifeq ($(LAB),trap)
