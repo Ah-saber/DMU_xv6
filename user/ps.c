@@ -15,10 +15,10 @@ main(int argc, char **argv)
         exit(1);
     }
     struct proc *pp;
-    printf("%8s    %8s      %8s     %8s\n", "PID", "STATE", "MEM", "NAME");
+    printf("%s    %s      %s     %s\n", "PID", "STATE", "MEM", "NAME");
     for(pp = p; pp < &p[NPROC]; pp ++){
         if(pp->state != UNUSED)
-            printf("%8d    %8d      %8d     %8s\n", pp->pid, pp->state, pp->sz, pp->name);
+            printf("%d    %d      %d     %s\n", pp->pid, pp->state, pp->sz, pp->name);
     }
 
     exit(0);
