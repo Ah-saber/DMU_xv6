@@ -20,5 +20,5 @@ myapi.key
 xv6.out*
 .vagrant/
 submissions/
-gdb-13.1/
+gdb-13.1/build/gdb/
 gdb-13.1.*
