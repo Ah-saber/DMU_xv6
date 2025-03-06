@@ -24,13 +24,13 @@
 #include "buf.h"
 
 struct {
-  struct spinlock lock;
-  struct buf buf[NBUF];
+  struct spinlock lock; //互斥锁
+  struct buf buf[NBUF]; //块缓存
 
   // Linked list of all buffers, through prev/next.
   // Sorted by how recently the buffer was used.
   // head.next is most recent, head.prev is least.
-  struct buf head;
+  struct buf head;  //块缓存链表的头
 } bcache;
 
 void
@@ -56,15 +56,15 @@ binit(void)
 // If not found, allocate a buffer.
 // In either case, return locked buffer.
 static struct buf*
-bget(uint dev, uint blockno)
+bget(uint dev, uint blockno) //查找指定盘块的块缓存
 {
   struct buf *b;
 
   acquire(&bcache.lock);
 
   // Is the block already cached?
-  for(b = bcache.head.next; b != &bcache.head; b = b->next){
-    if(b->dev == dev && b->blockno == blockno){
+  for(b = bcache.head.next; b != &bcache.head; b = b->next){  //扫描LRU链
+    if(b->dev == dev && b->blockno == blockno){   //找到匹配的块缓存
       b->refcnt++;
       release(&bcache.lock);
       acquiresleep(&b->lock);

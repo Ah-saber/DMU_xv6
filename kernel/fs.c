@@ -33,7 +33,7 @@ readsb(int dev, struct superblock *sb)
   struct buf *bp;
 
   bp = bread(dev, 1);
-  memmove(sb, bp->data, sizeof(*sb));
+  memmove(sb, bp->data, sizeof(*sb)); //从块缓存复制到内存超级块对象sb上
   brelse(bp);
 }
 
@@ -373,11 +373,11 @@ iunlockput(struct inode *ip)
 // listed in block ip->addrs[NDIRECT].
 
 // Return the disk block address of the nth block in inode ip.
-// If there is no such block, bmap allocates one.
-static uint
-bmap(struct inode *ip, uint bn)
+// If there is no such block,   p allocates one.
+static uint //ip：指向当前文件的 inode 结构，表示需要查找块地址的文件。bn：逻辑块号（block number），是文件内容中的一个块，在文件中从 0 开始计数。
+bmap(struct inode *ip, uint bn) //bmap 函数是一个用于获取 inode 中某个逻辑块对应的物理块地址的函数
 {
-  uint addr, *a;
+  uint addr, *a,*indirect;
   struct buf *bp;
 
   if(bn < NDIRECT){
@@ -391,12 +391,48 @@ bmap(struct inode *ip, uint bn)
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0)
       ip->addrs[NDIRECT] = addr = balloc(ip->dev);
-    bp = bread(ip->dev, addr);
+    bp = bread(ip->dev, addr);//从设备读取一个数据块到缓冲区
     a = (uint*)bp->data;
     if((addr = a[bn]) == 0){
       a[bn] = addr = balloc(ip->dev);
+      log_write(bp);//将缓冲区修改记录写到日志中
+    }
+    brelse(bp);
+    return addr;
+  }
+
+  bn-=NINDIRECT;
+  if(bn < NINDIRECT * NINDIRECT){
+    // 获取双间接块的地址
+    if((addr = ip->addrs[NDIRECT + 1]) == 0)
+      ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev);
+
+    // 读取双间接块
+    bp = bread(ip->dev, addr);
+    indirect = (uint*)bp->data;
+
+    // 计算间接块在双间接块中的索引
+    uint indirect_block = bn / NINDIRECT;  // 计算指向哪个间接块
+    uint block_offset = bn % NINDIRECT;    // 计算在该间接块中的偏移
+
+    // 获取该间接块的地址
+    if((addr = indirect[indirect_block]) == 0){
+      indirect[indirect_block] = addr = balloc(ip->dev);
       log_write(bp);
     }
+
+    // 读取该间接块
+    brelse(bp);
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    
+    // 获取最终数据块的地址
+    addr = a[block_offset];
+    if(addr == 0){
+      a[block_offset] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+
     brelse(bp);
     return addr;
   }
@@ -407,11 +443,11 @@ bmap(struct inode *ip, uint bn)
 // Truncate inode (discard contents).
 // Caller must hold ip->lock.
 void
-itrunc(struct inode *ip)
+itrunc(struct inode *ip)    //截断文件，将索引节点所管理的文件数据都释放掉（直接块和间接块）
 {
-  int i, j;
-  struct buf *bp;
-  uint *a;
+  int i, j,k;
+  struct buf *bp,*bp1,*bp2;
+  uint *a,*b;
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
@@ -425,12 +461,34 @@ itrunc(struct inode *ip)
     a = (uint*)bp->data;
     for(j = 0; j < NINDIRECT; j++){
       if(a[j])
-        bfree(ip->dev, a[j]);
+        bfree(ip->dev, a[j]); 
     }
     brelse(bp);
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
+
+  // 释放双间接块
+  if (ip->addrs[NDIRECT + 1]) {
+    bp1 = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+    a = (uint *)bp1->data;
+    for (j = 0; j < NINDIRECT; j++) {
+        if (a[j]) {  // 遍历双间接块中的所有一级间接块
+            bp2 = bread(ip->dev, a[j]);
+            b = (uint *)bp2->data;
+            for (k = 0; k < NINDIRECT; k++) {
+                if (b[k]) {
+                    bfree(ip->dev, b[k]); // 释放数据块
+                }
+            }
+            brelse(bp2);
+            bfree(ip->dev, a[j]); // 释放一级间接块
+        }
+    }
+    brelse(bp1);
+    bfree(ip->dev, ip->addrs[NDIRECT + 1]); // 释放双间接块本身
+    ip->addrs[NDIRECT + 1] = 0;
+}
 
   ip->size = 0;
   iupdate(ip);
@@ -453,7 +511,7 @@ stati(struct inode *ip, struct stat *st)
 // If user_dst==1, then dst is a user virtual address;
 // otherwise, dst is a kernel address.
 int
-readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
+readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n) //readi 函数用于从文件的 inode 读取数据，通常会用在文件系统中，负责将文件的内容（位于磁盘上的数据块）复制到用户提供的缓冲区。
 {
   uint tot, m;
   struct buf *bp;
@@ -464,9 +522,9 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
     n = ip->size - off;
 
   for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
-    m = min(n - tot, BSIZE - off%BSIZE);
-    if(either_copyout(user_dst, dst, bp->data + (off % BSIZE), m) == -1) {
+    bp = bread(ip->dev, bmap(ip, off/BSIZE)); //读取当前偏移量数据块
+    m = min(n - tot, BSIZE - off%BSIZE);  //计算本次读取的字节数
+    if(either_copyout(user_dst, dst, bp->data + (off % BSIZE), m) == -1) { //将数据从缓冲区复制到目标地址
       brelse(bp);
       tot = -1;
       break;

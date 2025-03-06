@@ -24,9 +24,11 @@ struct superblock {
 
 #define FSMAGIC 0x10203040
 
-#define NDIRECT 12
+#define NDIRECT 11
 #define NINDIRECT (BSIZE / sizeof(uint))
-#define MAXFILE (NDIRECT + NINDIRECT)
+#define MAXFILE (NDIRECT + NINDIRECT + NINDIRECT * NINDIRECT)
+
+#define DIRSIZ 14
 
 // On-disk inode structure
 struct dinode {
@@ -35,25 +37,25 @@ struct dinode {
   short minor;          // Minor device number (T_DEVICE only)
   short nlink;          // Number of links to inode in file system
   uint size;            // Size of file (bytes)
-  uint addrs[NDIRECT+1];   // Data block addresses
+  uint addrs[NDIRECT+2];   // Data block addresses
 };
 
 // Inodes per block.
-#define IPB           (BSIZE / sizeof(struct dinode))
+#define IPB           (BSIZE / sizeof(struct dinode)) //每个盘块上可以记录的inode的数量
 
 // Block containing inode i
-#define IBLOCK(i, sb)     ((i) / IPB + sb.inodestart)
+#define IBLOCK(i, sb)     ((i) / IPB + sb.inodestart) //用来计算第i个inode位于哪个盘块
 
 // Bitmap bits per block
-#define BPB           (BSIZE*8)
+#define BPB           (BSIZE*8) //盘块位数
 
 // Block of free map containing bit for block b
-#define BBLOCK(b, sb) ((b)/BPB + sb.bmapstart)
+#define BBLOCK(b, sb) ((b)/BPB + sb.bmapstart) //用于计算第b个数据盘块所对应的位图所在的盘块号
 
-// Directory is a file containing a sequence of dirent structures.
-#define DIRSIZ 14
+// Directory is a file containing a sequence of dirent structures. 
+#define DIRSIZ 14 //目录项中文件名字符串的大小
 
-struct dirent {
+struct dirent { //目录项
   ushort inum;
   char name[DIRSIZ];
 };

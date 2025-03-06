@@ -16,6 +16,25 @@
 #include "file.h"
 #include "fcntl.h"
 
+
+int strcmp(const char *s1, const char *s2) {
+  while (*s1 && (*s1 == *s2)) {
+      s1++;
+      s2++;
+  }
+  return (unsigned char)*s1 - (unsigned char)*s2;
+}
+
+// 简单实现 strcpy
+char* strcpy(char *dest, const char *src) {
+  char *d = dest;
+  while ((*d++ = *src++)) {
+      // 逐字符复制，直到遇到字符串结尾 '\0'
+  }
+  return dest;
+}
+
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -292,23 +311,59 @@ sys_open(void)
   struct inode *ip;
   int n;
 
+//argstr(0, path, MAXPATH) 从用户空间读取路径（path）到内核中的 path 数组，最多读取 MAXPATH 字节。
+//argint(1, &omode) 从用户空间读取文件打开的模式（omode），例如是否创建文件、是否只读等。
+
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
     return -1;
 
+//begin_op() 用来标记一个新的文件系统操作的开始。在 xv6 中，文件操作可能涉及到磁盘的读写，因此每次文件操作开始时都需要调用它，确保文件系统的一致性。
   begin_op();
 
   if(omode & O_CREATE){
     ip = create(path, T_FILE, 0, 0);
-    if(ip == 0){
+    if(ip == 0){  
       end_op();
       return -1;
     }
   } else {
+    if((ip = namei(path)) == 0){  //namei(path) 会查找指定路径的文件并返回其 inode。namei 函数返回一个指向文件 inode 的指针。
+      end_op();
+      return -1;
+    }
+    ilock(ip);  //ilock(ip) 锁定该 inode，确保文件在后续操作期间不会被其他进程修改。
+
+/*mycode start*/
+if(!(omode & O_NOFOLLOW) && ip->type == T_SYMLINK) {
+  char path[MAXPATH];
+
+  for(int i = 0; i < 12; i++) {	 
+  
+    if(readi(ip, 0, (uint64)path, 0, MAXPATH) < MAXPATH){	
+        iunlockput(ip);
+        end_op();
+        return -1;
+    }
+
+    iunlockput(ip);
     if((ip = namei(path)) == 0){
       end_op();
       return -1;
     }
-    ilock(ip);
+    ilock(ip);//是一个新的inode，需要再锁
+
+    if(ip->type != T_SYMLINK)	
+      break;
+  }
+  if(ip->type == T_SYMLINK){ //循环完毕任是符号链接，超过最大递归数，则失败
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+}
+/*mycode end*/
+
+
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
@@ -322,6 +377,8 @@ sys_open(void)
     return -1;
   }
 
+
+
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -333,7 +390,7 @@ sys_open(void)
   if(ip->type == T_DEVICE){
     f->type = FD_DEVICE;
     f->major = ip->major;
-  } else {
+  } else {  
     f->type = FD_INODE;
     f->off = 0;
   }
@@ -484,3 +541,35 @@ sys_pipe(void)
   }
   return 0;
 }
+
+
+
+uint64
+sys_symlink(void){
+  char target[MAXPATH];
+  char path[MAXPATH];
+  struct inode *ip;
+
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)//用于从两个参数中获得字符串，并分别存储在target，path
+    return -1;
+
+  begin_op(); //标记一个操作的开始，确保操作的原子性、一致性
+  
+  if((ip = create(path, T_SYMLINK, 0, 0)) == 0)	//创建符号链接，ip指向相应inode
+  {
+    end_op(); 
+    return -1; 
+  }
+
+  if(writei(ip, 0, (uint64)target, 0, MAXPATH) < MAXPATH)//将target中的内容写入inode中
+  {
+    iunlockput(ip);//解锁并释放inode
+    end_op(); 
+    return -1;
+  }
+ 
+  iunlockput(ip);
+  end_op(); 
+  return 0;
+}
+
