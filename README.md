@@ -26,10 +26,14 @@
 
 ### 参考博客：
 https://mit-public-courses-cn-translatio.gitbook.io/mit6-s081
+
 https://blog.miigon.net/posts/s081-ending/
+
 感谢大佬的笔记与miigon大佬的lab实现思路，收益良多。
 
 ### 课程网站：
+https://pdos.csail.mit.edu/6.828/2020/tools.html
+
 https://pdos.csail.mit.edu/6.828/2020/tools.html
 
 ### 校内：
